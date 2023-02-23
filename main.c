@@ -18,16 +18,19 @@ uint8_t status;
 
 // buffer for fetching information from the reader
 uint8_t str[16];
-uint8_t trenutna_razina_privilegije = 1;
-uint8_t odobreno = 0;
-uint8_t rednibroj = 0;
-uint8_t j = 0;
-uint8_t jj = 0;
-char id[10][10];
-char trenutni[10];
-uint8_t procitano;
 
-uint8_t flag = 0;
+
+char currentPrivilegeLevel = '1';
+uint8_t accessAllowed = 0;
+uint8_t addedCardCharPosition = 0;
+uint8_t scannedCharPosition = 0;
+char idAndPrivilegeTable[10][11];
+char lastScannedCard[10];
+uint8_t lastScannedCardPosition = 0;
+uint8_t scannedCardPosition = 0;
+uint8_t checkButtonPressed = 0;
+
+uint8_t privilegeAdded = 0;
 
 int main(void) {
 	lcd_init(LCD_DISP_ON);
@@ -61,12 +64,13 @@ int main(void) {
    
 	char buffer[64];
 	while(1){
-		flag = 0;
+		privilegeAdded = 0;
+		checkButtonPressed = 0;
 		
 		// request information about any tag in range of the antenna
 		status = mfrc522_request(PICC_REQALL,str);
 		lcd_clrscr();
-	   	lcd_puts("Waiting...\n");
+	   	lcd_puts("   Skenirajte\n    karticu");
 		if(status == CARD_FOUND) {
 		   // if card is found, try to fetch card id number
 			status = mfrc522_get_card_serial(str);
@@ -77,21 +81,37 @@ int main(void) {
 				for(uint8_t i = 0; i < 5; ++i) {
 					usart_hex_trenutni(str[i]);
 				}
-				odobreno = 0;
+				accessAllowed = 0;
 				for(uint8_t i = 0; i < 10; ++i) {
 					for(uint8_t z = 0; z < 10; ++z) {
-						if(id[i][z] != trenutni[z]){
+						if(idAndPrivilegeTable[i][z] != lastScannedCard[z]){
 							break;
 							} else {
 							lcd_clrscr();
-							lcd_puts("Odobreno");
-							odobreno = 1;
+							scannedCardPosition = i;
+							if(currentPrivilegeLevel > idAndPrivilegeTable[scannedCardPosition][10]){
+								lcd_puts("Nedovoljna\nprivilegija");	
+								_delay_ms(1500);
+								lcd_clrscr();
+								lcd_puts("Vasa razina");
+								lcd_gotoxy(12,0);
+								lcd_putc(idAndPrivilegeTable[scannedCardPosition][10]);
+								lcd_gotoxy(0,1);
+								lcd_puts("Trenutna");
+								lcd_gotoxy(9,1);
+								lcd_putc(currentPrivilegeLevel);
+							}else{
+								lcd_puts("Odobreno");						
+							}
+
+
+							accessAllowed = 1;
 							break;
 						}
 					}
 				}
-				if(!odobreno){
-					lcd_puts("Nema pristup");
+				if(!accessAllowed){
+					lcd_puts("Nemate pristup");
 				}
 				
 		   }
@@ -100,38 +120,10 @@ int main(void) {
 		   }
 		   _delay_ms(1500);
 		}
-		
-
-		
-		
+	
 		// Test for a tag every 1000ms
 		_delay_ms(1000);
 		
-		
-// 		// request information about any tag in range of the antenna 
-// 		status = mfrc522_request(PICC_REQALL,str);
-// 		lcd_clrscr();
-// 	   	lcd_puts("Waiting...\n");
-// 		   
-// 		if(status == CARD_FOUND) {
-// 		   // if card is found, try to fetch card id number
-// 			status = mfrc522_get_card_serial(str);
-// 			
-// 			if(status == CARD_FOUND) {
-// 				// send id number (as hex characters) through USART interface
-// 				lcd_clrscr();
-// 				for(uint8_t i = 0; i < 5; ++i) {
-// 					usart_hex(str[i]);
-// 				}
-// 		   }
-// 		   else {
-// 			 lcd_puts("Error reading serial!\n");
-// 		   }
-// 		   _delay_ms(1500);
-// 		}
-// 	 
-// 		// Test for a tag every 1000ms
-// 		_delay_ms(1000);
    }
 	
 	
@@ -143,9 +135,9 @@ void detectReader() {
 	uint8_t byte = mfrc522_read(VersionReg);
 	
 	if (byte == 0x92 || byte == 0x91 || byte==0x90) {
-		lcd_puts("RFID uspjesno");
+		lcd_puts("RFID uspjesno\n   spojen");
 	} else {
-		lcd_puts("RFID nije");
+		lcd_puts("RFID neuspjesno\n   spojen");
 	}
 }
 
@@ -175,12 +167,12 @@ void usart_putc(const unsigned char data) {
 	while ( !( UCSRA & _BV(UDRE)) );
 	UDR = data;
 
-	if (j == 10){
-		j = 0;
-		rednibroj++;
+	if (addedCardCharPosition == 10){
+		addedCardCharPosition = 0;
+		lastScannedCardPosition++;
 	}
-	id[rednibroj][j] = data;
-	j++;
+	idAndPrivilegeTable[lastScannedCardPosition][addedCardCharPosition] = data;
+	addedCardCharPosition++;
 	lcd_putc(data);
 }
 
@@ -188,11 +180,11 @@ void usart_putc_trenutni(const unsigned char data) {
 	while ( !( UCSRA & _BV(UDRE)) );
 	UDR = data;
 
-	if (jj == 10){
-		jj = 0;
+	if (scannedCharPosition == 10){
+		scannedCharPosition = 0;
 	}
-	trenutni[jj] = data;
-	jj++;
+	lastScannedCard[scannedCharPosition] = data;
+	scannedCharPosition++;
 }
 
 void usart_puts(const char* data) {
@@ -224,35 +216,42 @@ void usart_hex_trenutni(uint8_t d) {
 
 void changePrivilegeLevel(){
 	lcd_clrscr();
-	lcd_puts("Promijeni razinu\nprivilegija");
-	
+	lcd_puts("Promijeni razinu\n  privilegija");
+
 	while(1){
+
 		if(bit_is_clear(PINB, 0)) {
 			lcd_clrscr();
 			lcd_puts("1");
-			trenutna_razina_privilegije = 1;
+			checkButtonPressed = 1;
+			currentPrivilegeLevel = '1';
  			_delay_ms(1000);
  			break;
 		} else if(bit_is_clear(PINB, 1)) {
 			lcd_clrscr();
 			lcd_puts("2");
-			trenutna_razina_privilegije = 2;
+			checkButtonPressed = 1;
+			currentPrivilegeLevel = '2';
 			_delay_ms(1000);
 			break;
 		}  else if(bit_is_clear(PINB, 2)) {
 			lcd_clrscr();
 			lcd_puts("3");
-			trenutna_razina_privilegije = 3;
+			checkButtonPressed = 1;
+			currentPrivilegeLevel = '3';
 			_delay_ms(1000);
 			break;
 		}
+		if(checkButtonPressed){
+			break;
+		}
+
 	}
-	
-	_delay_ms(300);
+
 }
 
 void addNewUser(){
-	while(!flag){
+	while(!privilegeAdded){
 		lcd_clrscr();
 		lcd_puts("Dodaj korisnika");
 		lcd_gotoxy(0,1);
@@ -272,7 +271,37 @@ void addNewUser(){
 					usart_hex(str[i]);
 				}
 				_delay_ms(1000);
-				flag = 1;
+				lastScannedCardPosition++;	
+				lcd_clrscr();
+				lcd_puts("Korisnik dodan \nPrivilegija: _");
+				//petlja koja ?eka na pritisak neke od tipki za postavljanje privilegije
+				while(1){
+					if(bit_is_clear(PINB, 0)) {
+						lcd_gotoxy(13,1);
+						lcd_puts("1");
+						idAndPrivilegeTable[lastScannedCardPosition-1][10] = '1';
+ 						_delay_ms(1000);
+						 privilegeAdded = 1;
+ 						break;
+					} else if(bit_is_clear(PINB, 1)) {
+						lcd_gotoxy(13,1);
+						lcd_puts("2");
+						idAndPrivilegeTable[lastScannedCardPosition-1][10] = '2';
+						_delay_ms(1000);
+						privilegeAdded = 1;
+						break;
+					}  else if(bit_is_clear(PINB, 2)) {
+						lcd_gotoxy(13,1);
+						lcd_puts("3");
+						idAndPrivilegeTable[lastScannedCardPosition-1][10] ='3';
+						_delay_ms(1000);
+						privilegeAdded = 1;
+						break;
+					}
+				}
+				
+				
+				
 			}
 			else {
 				lcd_puts("Error reading serial!\n");
