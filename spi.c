@@ -1,11 +1,3 @@
-/*
- * spi.c
- *
- * Created: 1/20/2021 4:00:55 PM
- * Author : Mateo
- */ 
-
-
 #include "spi.h"
 
 void spi_init() {

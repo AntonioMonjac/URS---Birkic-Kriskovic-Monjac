@@ -1,10 +1,3 @@
-/*
- * spi.h
- *
- * Created: 1/20/2021 4:00:23 PM
- * Author : Mateo
- */ 
-
 #ifndef SPI_H
 #define SPI_H
 
